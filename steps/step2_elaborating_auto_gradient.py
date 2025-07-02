@@ -20,11 +20,15 @@ class Variable:
         funcs = [self.creator]
         while funcs:
             f = funcs.pop()
-            x, y = f.input, f.output
-            x.grad = f.backward(y.grad)  
+            gys = [output.grad for output in f.outputs] # output 여러개가 된 걸 적용
+            gxs = f.backward(*gys)  # unpack해서 backward 에 넣어줌
+            if not isinstance(gxs, tuple):
+                gxs = (gxs, )
 
-            if x.creator is not None:
-                funcs.append(x.creator)
+            for x, gx in zip(f.inputs, gxs): # 가변길이 적용, 각 input마다 grad 입력해줌
+                x.grad = gx
+                if x.creator is not None:
+                    funcs.append(x.creator)
 
 def as_array(x): 
     if np.isscalar(x):
@@ -58,7 +62,7 @@ class Square(Function):
         return x ** 2
     
     def backward(self, gy): 
-        x = self.input.data
+        x = self.inputs[0].data # 가변길이 input 형식 적용
         gx = 2 * x * gy 
         return gx
     
@@ -67,7 +71,7 @@ class Exp(Function):
         return np.exp(x)
     
     def backward(self, gy):
-        x = self.input.data
+        x = self.inputs[0].data
         gx = np.exp(x) * gy
         return gx
 
@@ -77,8 +81,7 @@ class Add(Function):
         return y
     
     def backward(self, gy):
-        gx = (gy, gy)
-        return gx
+        return (gy, gy)
 
 def square(x):
     f = Square()
@@ -104,5 +107,8 @@ if __name__ == '__main__':
     x0 = Variable(np.array(2))
     x1 = Variable(np.array(3))
 
-    y = add(x0, x1)
+    y = add(square(x0), square(x1))
+    y.backward()
     print(y.data)
+    print(x0.grad)
+    print(x1.grad)
