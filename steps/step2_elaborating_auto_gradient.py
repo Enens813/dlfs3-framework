@@ -51,6 +51,7 @@ class Variable:
                     # x.grad += gx 로 하면 안됨. 
                     # x+=x는 in-place operation(덮어쓰기, overwrite), x=x+x는 값을 복사하여 새로 생성하는 것.
                     # backprop할 때 z=add(add(x,x),x) 하면, outputs=[z], gys=[z.grad], gxs=(z.grad,z.grad), 첫for step에서 x.grad=z.grad(같은 메모리 참조), 두번째 for step에서 x.grad += z.grad 하면, 메모리 상에선 a+=a인 것이므로 a<-2a와 같은 결과가 되어 z.grad=x.grad=2a가 되는 것
+                    # 이게 python float에선 아닌데, ndarray에선 성립
                 if x.creator is not None:
                     add_func(x.creator)
     
