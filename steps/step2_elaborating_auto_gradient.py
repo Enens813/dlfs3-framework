@@ -32,9 +32,11 @@ def as_array(x):
     return x
 
 class Function:
-    def __call__(self, inputs):
+    def __call__(self, *inputs): # *(list unpack)을 이용해서 가변길이 input/output
         xs = [x.data for x in inputs]
-        ys = self.forward(xs)
+        ys = self.forward(*xs)
+        if not isinstance(ys, tuple):
+            ys = (ys, )
         outputs = [Variable(as_array(y)) for y in ys ]
 
         for output in outputs:
@@ -42,7 +44,8 @@ class Function:
 
         self.inputs = inputs
         self.outputs = outputs
-        return outputs
+
+        return outputs if len(outputs)>1 else outputs[0] # output길이가 2 이상이면 array of Variable로, 1이면 Variable로 반환
     
     def forward(self, xs):
         raise NotImplementedError()
@@ -69,10 +72,9 @@ class Exp(Function):
         return gx
 
 class Add(Function):
-    def forward(self, xs):
-        x0, x1 = xs
+    def forward(self, x0, x1):
         y = x0 + x1
-        return (y, )
+        return y
     
     def backward(self, gy):
         gx = (gy, gy)
@@ -86,6 +88,9 @@ def exp(x):
     f = Exp()
     return f(x)
 
+def add(x0, x1):
+    return Add()(x0, x1)
+
 def numerical_diff(f, x, eps=1e-4):
     x0 = Variable(x.data - eps)
     x1 = Variable(x.data + eps)
@@ -95,8 +100,9 @@ def numerical_diff(f, x, eps=1e-4):
 
 
 if __name__ == '__main__':
-    xs = [Variable(np.array(2)), Variable(np.array(3))]
-    f = Add()
-    ys = f(xs)
-    y = ys[0]
+    
+    x0 = Variable(np.array(2))
+    x1 = Variable(np.array(3))
+
+    y = add(x0, x1)
     print(y.data)
