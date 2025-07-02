@@ -1,4 +1,7 @@
 import numpy as np
+import heapq
+import itertools
+
 
 class Variable:
     def __init__(self, data):
@@ -8,27 +11,51 @@ class Variable:
             
         self.data = data
         self.grad = None    
-        self.creator = None 
+        self.creator = None
+        self.generation = 0     # 복잡한 계산 그래프에서 backprop순서 지정을 하기 위해서 필요
     
     def set_creator(self, func):
         self.creator = func
+        self.generation = func.generation + 1 
     
     def backward(self):
         if self.grad is None:
             self.grad = np.ones_like(self.data)
 
-        funcs = [self.creator]
+        funcs = []
+        seen_set = set()
+        counter = itertools.count()  # 고유 번호 생성
+
+        def add_func(f):    # 지금까지 나온 적이 없으면 funcs 라는 heapq(min-heap(항상 root node에 최솟값) 자료구조)에 추가. min-heap에서 최솟값을 판단하는 기준(priority)는 -generation으로 함. generation이 큰 게 root가 되도록.
+            if f not in seen_set:
+                seen_set.add(f)
+                heapq.heappush(funcs, (-f.generation, next(counter), f)) # f.generation과 f가 같을 경우, 임의 순서대로 진행되도록 counter 추가
+        
+        add_func(self.creator)
+
         while funcs:
-            f = funcs.pop()
+            # funcs.sort(key=lambda x: x.generation)
+            # f = funcs.pop()
+            _, _, f  = heapq.heappop(funcs)  # 가장 큰 generation을 pop (위 두 줄을 우선순위 큐로 구현)
+
             gys = [output.grad for output in f.outputs] # output 여러개가 된 걸 적용
-            gxs = f.backward(*gys)  # unpack해서 backward 에 넣어줌
+            gxs = f.backward(*gys)  # unpack해서 backward 에 넣어줌 (list가 아니라 array 여러개로)
             if not isinstance(gxs, tuple):
                 gxs = (gxs, )
 
-            for x, gx in zip(f.inputs, gxs): # 가변길이 적용, 각 input마다 grad 입력해줌
-                x.grad = gx
+            for x, gx in zip(f.inputs, gxs):    # 가변길이 적용, 각 input마다 grad 입력해줌
+                if x.grad is None:              # add(x,x) 처럼 한 변수가 두번 들어가는 경우를 위해 if~else 추가
+                    x.grad = gx
+                else:
+                    x.grad = x.grad + gx
+                    # x.grad += gx 로 하면 안됨. 
+                    # x+=x는 in-place operation(덮어쓰기, overwrite), x=x+x는 값을 복사하여 새로 생성하는 것.
+                    # backprop할 때 z=add(add(x,x),x) 하면, outputs=[z], gys=[z.grad], gxs=(z.grad,z.grad), 첫for step에서 x.grad=z.grad(같은 메모리 참조), 두번째 for step에서 x.grad += z.grad 하면, 메모리 상에선 a+=a인 것이므로 a<-2a와 같은 결과가 되어 z.grad=x.grad=2a가 되는 것
                 if x.creator is not None:
-                    funcs.append(x.creator)
+                    add_func(x.creator)
+    
+    def cleargrad(self):
+        self.grad = None
 
 def as_array(x): 
     if np.isscalar(x):
@@ -42,6 +69,8 @@ class Function:
         if not isinstance(ys, tuple):
             ys = (ys, )
         outputs = [Variable(as_array(y)) for y in ys ]
+
+        self.generation = max([x.generation for x in inputs])   # input의 generation 중 max로 함. 다음 변수의 generation을 지정할 때 사용
 
         for output in outputs:
             output.set_creator(self)    
@@ -109,6 +138,23 @@ if __name__ == '__main__':
 
     y = add(square(x0), square(x1))
     y.backward()
+    print(f"y = x0^2 + x1^2, x0={x0.data}, x1={x1.data} : y, x0.grad, x1.grad")
     print(y.data)
     print(x0.grad)
     print(x1.grad)
+
+    x0.cleargrad()
+    z = add(add(x0, x0), x0)
+    z.backward()
+    print(f"z = x0 + x0 + x0, x0={x0.data} : z, z.grad, x0.grad")
+    print(z.data)
+    print(z.grad, id(z.grad))
+    print(x0.grad, id(x0.grad)) # 3여야 함!!
+
+    x = Variable(np.array(2.0))
+    a = square(x)
+    y = add(square(a), square(a))
+    y.backward()
+    print(f"a = x^2, y = a^2 + a^2, x={x.data} : y, x.grad")
+    print(y.data)
+    print(x.grad)
