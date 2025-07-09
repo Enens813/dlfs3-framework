@@ -256,7 +256,14 @@ class Pow(Function):
     def backward(self, gy):
         gx = gy * self.c * ( x ** (self.c-1))
         return gx
-    
+
+
+# operator overloading 방법2
+Variable.__add__ = add
+# int + variable일 때, radd가 실행됨. radd 없으면 int+variable은 정의되어있지 않으므로 오류남. variable+int일 때는 add(variable이 self, int가 others)가 실행됨. mul도 마찬가지
+Variable.__radd__ = add
+Variable.__rmul__ = mul
+
 def neg(x): return Neg()(x)
 Variable.__neg__ = neg
 
@@ -281,12 +288,6 @@ Variable.__rtruediv__ = rdiv
 def pow(x,c): return Pow(c)(x)
 Variable.__pow__ = pow
 
-
-# operator overloading 방법2
-Variable.__add__ = add
-# int + variable일 때, radd가 실행됨. radd 없으면 int+variable은 정의되어있지 않으므로 오류남. variable+int일 때는 add(variable이 self, int가 others)가 실행됨. mul도 마찬가지
-Variable.__radd__ = add
-Variable.__rmul__ = mul
 
 def numerical_diff(f, x, eps=1e-4):
     x0 = Variable(x.data - eps)
