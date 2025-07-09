@@ -23,12 +23,13 @@ def no_grad():
 
 
 class Variable:
-    def __init__(self, data):
+    def __init__(self, data, name=None):
         if data is not None:
             if not isinstance(data, np.ndarray):
                 raise TypeError("{}은(는) 지원하지 않습니다".format(type(data)))
             
         self.data = data
+        self.name = name
         self.grad = None    
         self.creator = None
         self.generation = 0     # 복잡한 계산 그래프에서 backprop순서 지정을 하기 위해서 필요
@@ -82,6 +83,33 @@ class Variable:
     
     def cleargrad(self):
         self.grad = None
+    
+    @property # shape method를 인스턴스 "변수"처럼 사용할 수 있음 x.shape() 대신 x.shape로 호출 가능
+    def shape(self):
+        return self.data.shape
+    
+    @property
+    def ndim(self):
+        return self.data.ndim
+    
+    @property
+    def size(self):
+        return self.data.size
+    
+    @property
+    def dtype(self):
+        return self.data.dtype
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __repr__(self):         # 원래는 print(x)했을 때 <__main__.Variable object at 0x0000016B516DA450> 처럼 뜨던 걸 바꿔줌
+        if self.data is None:
+            return 'variable(None)'
+        p = str(self.data).replace('\n', '\n'+ ' '*9)
+        return f'variable({p})'
+
+    
 
 def as_array(x): 
     if np.isscalar(x):
@@ -205,3 +233,8 @@ if __name__ == '__main__':
     with no_grad():
         x = Variable(np.array(2.0))
         y = square(x)
+
+    x = Variable(np.array([[1,2,3], [4,5,6]]))
+    print(len(x))
+
+    print(x)
