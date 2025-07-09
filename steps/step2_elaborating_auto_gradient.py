@@ -1,7 +1,7 @@
 import numpy as np
 import heapq
 import itertools
-
+import weakref
 
 class Variable:
     def __init__(self, data):
@@ -18,7 +18,7 @@ class Variable:
         self.creator = func
         self.generation = func.generation + 1 
     
-    def backward(self):
+    def backward(self, retain_grad=False): # retain_grad=False 일 때는 backprop 후 메모리를 해제함 (주로 backprop은 말단 변수의 grad만 필요하므로)
         if self.grad is None:
             self.grad = np.ones_like(self.data)
 
@@ -38,7 +38,7 @@ class Variable:
             # f = funcs.pop()
             _, _, f  = heapq.heappop(funcs)  # 가장 큰 generation을 pop (위 두 줄을 우선순위 큐로 구현)
 
-            gys = [output.grad for output in f.outputs] # output 여러개가 된 걸 적용
+            gys = [output().grad for output in f.outputs] # output 여러개가 된 걸 적용      # function의 outputs를 weakref하면서 각 output 대신 output() 사용해야 함
             gxs = f.backward(*gys)  # unpack해서 backward 에 넣어줌 (list가 아니라 array 여러개로)
             if not isinstance(gxs, tuple):
                 gxs = (gxs, )
@@ -54,6 +54,12 @@ class Variable:
                     # 이게 python float에선 아닌데, ndarray에선 성립
                 if x.creator is not None:
                     add_func(x.creator)
+            
+            # backprop할 때 중간 단계의 grad는 전파하고 나서 지움. (backprop의 output은 (f의 input))
+            # 왜냐면 우리는 dy/dy 같은걸 구하려는 게 아니고 dy/dW, dy/dx를 구하려는 것이기 때문. 필요없는 단계들이 좀 있음. 때문에 중간단계인 계산과정은 필요가 없음
+            if not retain_grad:
+                for y in f.outputs:
+                    y().grad = None     # y는 weakref라 () 써야 함
     
     def cleargrad(self):
         self.grad = None
@@ -77,7 +83,22 @@ class Function:
             output.set_creator(self)    
 
         self.inputs = inputs
-        self.outputs = outputs
+        self.outputs = [weakref.ref(output) for output in outputs]
+        ## 파이썬의 메모리 관리 방식 
+        # 참조 카운트: 파이썬에서는 메모리의 참조 수를 세는 '참조 카운트'방식과, GC(Garbage Collector) 방식을 모두 이용함. 
+        # 순환 참조: a가 b를 참조하고, b가 a를 참조하는 상황은, 외부에서 a나 b를 참조하지 않아도 참조 카운트가 각각 1로 유지됨 -> 메모리에서 사라지지 않음.
+        # 이때 참조 카운트 방식은 순환 참조를 해결할 수 없고 GC는 느림 -> 일단 순환 참조를 해결하면 빨라짐(메모리 누수 방지 즉, 쓸모없는 변수에 메모리를 할당하지 않음 & GC 오버헤드 감소 & del 연산 속도 증가).
+
+        ## variable과 function의 순환참조
+        # 위 방식에는 function -(output)-> variable, function <-(creator)- variable 즉 Variable.creator.outputs = [Variable] 의 순환참조 구조가 존재
+        # retain_grad=False면 중간 단계의 grad를 유지하지 않기 위해 수동으로 y.grad=None을 하여 메모리 관리를 하려고 함
+        # for y in f.outputs: y.grad=None을 하면 None이 되는 것처럼 보임. (순환 참조가 없다면 변수에 None을 대입했을 때 객체는 참조 카운트가 0이되고 즉시 메모리에서 사라짐)
+        # 그러나 코드는 오류없이 동작하긴 하지만, 순환참조 중인 변수에 None을 대입해도 메모리상에서 지워지지 않음. (참조 카운트가 0이 되지 않았기 때문)
+        # 이걸 해결하기 위해 output을 weakref로 참조함.weakref.ref(output)을 하면 output 이 self.outputs 리스트 안에 들어가긴 하는데, output의 ref count를 올리지 않음.
+
+        ## weakref 를 사용하면,
+        # 대신, weakref로 정의된 outputs의 element들을 사용할 때는 뒤에 ()처럼 호출해야 함. ex. for output in function.outputs: print(output())
+        # 파이썬 내부적으로 ref count=0이 되면 메모리에서 변수 삭제. 그 다음 self.outputs를 부르면 [None, None ...] 나올 것.
 
         return outputs if len(outputs)>1 else outputs[0] # output길이가 2 이상이면 array of Variable로, 1이면 Variable로 반환
     
