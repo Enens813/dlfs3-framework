@@ -23,10 +23,12 @@ def no_grad():
 
 
 class Variable:
+    __array_priority__ = 200
+
     def __init__(self, data, name=None):
         if data is not None:
             if not isinstance(data, np.ndarray):
-                raise TypeError("{}은(는) 지원하지 않습니다".format(type(data)))
+                raise TypeError("{}은(는) 지원하지 않습니다".format(type(data)))    
             
         self.data = data
         self.name = name
@@ -108,7 +110,10 @@ class Variable:
             return 'variable(None)'
         p = str(self.data).replace('\n', '\n'+ ' '*9)
         return f'variable({p})'
-
+    
+    # operator overloading 방법1
+    def __mul__(self, other):
+        return mul(self, other)
     
 
 def as_array(x): 
@@ -116,8 +121,16 @@ def as_array(x):
         return np.array(x)
     return x
 
+# Variable + np.array() 같은 경우를 편하게 쓰기 위해 만들어줌
+def as_variable(obj):
+    if isinstance(obj, Variable):
+        return obj
+    return Variable(obj)
+
 class Function:
     def __call__(self, *inputs): # *(list unpack)을 이용해서 가변길이 input/output
+        inputs = [as_variable(x) for x in inputs]
+
         xs = [x.data for x in inputs]
         ys = self.forward(*xs)
         if not isinstance(ys, tuple):
@@ -165,7 +178,11 @@ class Square(Function):
         x = self.inputs[0].data # 가변길이 input 형식 적용
         gx = 2 * x * gy 
         return gx
-    
+       
+def square(x):
+    f = Square()
+    return f(x)
+
 class Exp(Function):
     def forward(self, x):
         return np.exp(x)
@@ -175,6 +192,12 @@ class Exp(Function):
         gx = np.exp(x) * gy
         return gx
 
+def exp(x):
+    f = Exp()
+    return f(x)
+
+
+
 class Add(Function):
     def forward(self, x0, x1):
         y = x0 + x1
@@ -182,17 +205,88 @@ class Add(Function):
     
     def backward(self, gy):
         return (gy, gy)
-
-def square(x):
-    f = Square()
-    return f(x)
-
-def exp(x):
-    f = Exp()
-    return f(x)
+    
+class Mul(Function):
+    def forward(self, x0, x1):
+        y = x0 * x1
+        return y
+    
+    def backward(self, gy):
+        x0, x1 = self.inputs[0].data, self.inputs[1].data
+        return gy*x1, gy*x0
 
 def add(x0, x1):
+    x1 = as_array(x1)       # operator overloading 할 때를 위해 사용 -> int, float와 함께 사용가능
     return Add()(x0, x1)
+
+def mul(x0, x1):
+    x1 = as_array(x1)
+    return Mul()(x0, x1)
+
+
+class Neg(Function):
+    def forward(self, x):
+        return -x
+    def backward(self, gy):
+        return -gy
+
+class Sub(Function):
+    def forward(self, x0, x1):
+        y = x0 - x1
+        return y
+    def backward(self, gy):
+        return gy, -gy
+    
+class Div(Function):
+    def forward(self, x0, x1):
+        y = x0 / x1
+        return y
+    def backward(self, gy):
+        x0, x1 = self.inputs[0].data, self.inputs[1].data
+        gx0 = gy / x1
+        gx1 = gy * (-x0 / (x1 **2))
+        return gx0, gx1
+
+class Pow(Function):
+    def __init__ (self, c):
+        self.c = c      # forward에서 안받고, 미리 받아둠 -> forward, backward 시 x만 변수
+    def forward(self, x):
+        y = x ** self.c
+        return y
+    def backward(self, gy):
+        gx = gy * self.c * ( x ** (self.c-1))
+        return gx
+    
+def neg(x): return Neg()(x)
+Variable.__neg__ = neg
+
+def sub(x0, x1): 
+    x1 = as_array(x1)
+    return Sub()(x0, x1)
+def rsub(x0, x1):
+    x1 = as_array(x1)
+    return Sub()(x1, x0)    # rsub은 순서를 바꿔야 함
+Variable.__sub__ = sub
+Variable.__rsub__ = rsub
+
+def div(x0, x1):
+    x1 = as_array(x1)
+    return Div()(x0, x1)
+def rdiv(x0, x1):
+    x1 = as_array(x1)
+    return Div()(x1, x0)
+Variable.__truediv__ = div
+Variable.__rtruediv__ = rdiv
+
+def pow(x,c): return Pow(c)(x)
+Variable.__pow__ = pow
+
+
+# operator overloading 방법2
+Variable.__add__ = add
+# int + variable일 때, radd가 실행됨. radd 없으면 int+variable은 정의되어있지 않으므로 오류남. variable+int일 때는 add(variable이 self, int가 others)가 실행됨. mul도 마찬가지
+Variable.__radd__ = add
+Variable.__rmul__ = mul
 
 def numerical_diff(f, x, eps=1e-4):
     x0 = Variable(x.data - eps)
@@ -238,3 +332,5 @@ if __name__ == '__main__':
     print(len(x))
 
     print(x)
+
+    print(((np.array([3]) + x)*2 - np.array(10))**3)
