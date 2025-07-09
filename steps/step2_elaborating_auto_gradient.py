@@ -2,6 +2,25 @@ import numpy as np
 import heapq
 import itertools
 import weakref
+import contextlib
+
+# Config는 하나만 있는 게 좋음. -> config class는 인스턴스화 하지 않고 클래스 상태로 이용
+# 전역 설정을 위한 static 변수라고도 부름
+class Config:
+    enable_backprop = True
+
+@contextlib.contextmanager  # with using_config(): 처럼 쓸 수 있음
+def using_config(name, value):
+    old_value = getattr(Config, name)       # 설정을 바꾸기 전의 값(Config.name)을 저장
+    setattr(Config, name, value)            # Config.name을 valeu로 바꿈
+    try:                                    # with : 내부의 코드 실행
+        yield
+    finally:                                # with 내부 코드 실행 후 설정을 원래대로 복원
+        setattr(Config, name, old_value)
+
+def no_grad():
+    return using_config('enable_backprop', False)
+
 
 class Variable:
     def __init__(self, data):
@@ -77,28 +96,30 @@ class Function:
             ys = (ys, )
         outputs = [Variable(as_array(y)) for y in ys ]
 
-        self.generation = max([x.generation for x in inputs])   # input의 generation 중 max로 함. 다음 변수의 generation을 지정할 때 사용
+        # enable_backprop = True일 때만 backprop 코드 실행
+        if Config.enable_backprop:
+            self.generation = max([x.generation for x in inputs])   # input의 generation 중 max로 함. 다음 변수의 generation을 지정할 때 사용
 
-        for output in outputs:
-            output.set_creator(self)    
+            for output in outputs:
+                output.set_creator(self)    
 
-        self.inputs = inputs
-        self.outputs = [weakref.ref(output) for output in outputs]
-        ## 파이썬의 메모리 관리 방식 
-        # 참조 카운트: 파이썬에서는 메모리의 참조 수를 세는 '참조 카운트'방식과, GC(Garbage Collector) 방식을 모두 이용함. 
-        # 순환 참조: a가 b를 참조하고, b가 a를 참조하는 상황은, 외부에서 a나 b를 참조하지 않아도 참조 카운트가 각각 1로 유지됨 -> 메모리에서 사라지지 않음.
-        # 이때 참조 카운트 방식은 순환 참조를 해결할 수 없고 GC는 느림 -> 일단 순환 참조를 해결하면 빨라짐(메모리 누수 방지 즉, 쓸모없는 변수에 메모리를 할당하지 않음 & GC 오버헤드 감소 & del 연산 속도 증가).
+            self.inputs = inputs
+            self.outputs = [weakref.ref(output) for output in outputs]
+            ## 파이썬의 메모리 관리 방식 
+            # 참조 카운트: 파이썬에서는 메모리의 참조 수를 세는 '참조 카운트'방식과, GC(Garbage Collector) 방식을 모두 이용함. 
+            # 순환 참조: a가 b를 참조하고, b가 a를 참조하는 상황은, 외부에서 a나 b를 참조하지 않아도 참조 카운트가 각각 1로 유지됨 -> 메모리에서 사라지지 않음.
+            # 이때 참조 카운트 방식은 순환 참조를 해결할 수 없고 GC는 느림 -> 일단 순환 참조를 해결하면 빨라짐(메모리 누수 방지 즉, 쓸모없는 변수에 메모리를 할당하지 않음 & GC 오버헤드 감소 & del 연산 속도 증가).
 
-        ## variable과 function의 순환참조
-        # 위 방식에는 function -(output)-> variable, function <-(creator)- variable 즉 Variable.creator.outputs = [Variable] 의 순환참조 구조가 존재
-        # retain_grad=False면 중간 단계의 grad를 유지하지 않기 위해 수동으로 y.grad=None을 하여 메모리 관리를 하려고 함
-        # for y in f.outputs: y.grad=None을 하면 None이 되는 것처럼 보임. (순환 참조가 없다면 변수에 None을 대입했을 때 객체는 참조 카운트가 0이되고 즉시 메모리에서 사라짐)
-        # 그러나 코드는 오류없이 동작하긴 하지만, 순환참조 중인 변수에 None을 대입해도 메모리상에서 지워지지 않음. (참조 카운트가 0이 되지 않았기 때문)
-        # 이걸 해결하기 위해 output을 weakref로 참조함.weakref.ref(output)을 하면 output 이 self.outputs 리스트 안에 들어가긴 하는데, output의 ref count를 올리지 않음.
+            ## variable과 function의 순환참조
+            # 위 방식에는 function -(output)-> variable, function <-(creator)- variable 즉 Variable.creator.outputs = [Variable] 의 순환참조 구조가 존재
+            # retain_grad=False면 중간 단계의 grad를 유지하지 않기 위해 수동으로 y.grad=None을 하여 메모리 관리를 하려고 함
+            # for y in f.outputs: y.grad=None을 하면 None이 되는 것처럼 보임. (순환 참조가 없다면 변수에 None을 대입했을 때 객체는 참조 카운트가 0이되고 즉시 메모리에서 사라짐)
+            # 그러나 코드는 오류없이 동작하긴 하지만, 순환참조 중인 변수에 None을 대입해도 메모리상에서 지워지지 않음. (참조 카운트가 0이 되지 않았기 때문)
+            # 이걸 해결하기 위해 output을 weakref로 참조함.weakref.ref(output)을 하면 output 이 self.outputs 리스트 안에 들어가긴 하는데, output의 ref count를 올리지 않음.
 
-        ## weakref 를 사용하면,
-        # 대신, weakref로 정의된 outputs의 element들을 사용할 때는 뒤에 ()처럼 호출해야 함. ex. for output in function.outputs: print(output())
-        # 파이썬 내부적으로 ref count=0이 되면 메모리에서 변수 삭제. 그 다음 self.outputs를 부르면 [None, None ...] 나올 것.
+            ## weakref 를 사용하면,
+            # 대신, weakref로 정의된 outputs의 element들을 사용할 때는 뒤에 ()처럼 호출해야 함. ex. for output in function.outputs: print(output())
+            # 파이썬 내부적으로 ref count=0이 되면 메모리에서 변수 삭제. 그 다음 self.outputs를 부르면 [None, None ...] 나올 것.
 
         return outputs if len(outputs)>1 else outputs[0] # output길이가 2 이상이면 array of Variable로, 1이면 Variable로 반환
     
@@ -180,3 +201,7 @@ if __name__ == '__main__':
     print(f"a = x^2, y = a^2 + a^2, x={x.data} : y, x.grad")
     print(y.data)
     print(x.grad)
+
+    with no_grad():
+        x = Variable(np.array(2.0))
+        y = square(x)
