@@ -7,7 +7,7 @@ sys.path.append(base)
 
 import numpy as np
 import math
-from dezero import *
+from dezero import Variable, Function, as_array
 
 class Sin(Function):
     def forward(self, x):
