@@ -40,7 +40,7 @@ class Variable:
         self.creator = func
         self.generation = func.generation + 1 
     
-    def backward(self, retain_grad=False): # retain_grad=False 일 때는 backprop 후 메모리를 해제함 (주로 backprop은 말단 변수의 grad만 필요하므로)
+    def backward(self, retain_grad=False): # retain_grad=False 일 때는 각 함수에서 backprop 후 이전 input의 grad 메모리를 해제함 (주로 backprop은 말단 변수의 grad만 필요하므로)
         if self.grad is None:
             self.grad = np.ones_like(self.data)
 

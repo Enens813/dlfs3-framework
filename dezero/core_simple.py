@@ -119,13 +119,14 @@ class Function:
     def __call__(self, *inputs): 
         inputs = [as_variable(x) for x in inputs]
 
+        # 순전파 계산
         xs = [x.data for x in inputs]
         ys = self.forward(*xs)
         if not isinstance(ys, tuple):
             ys = (ys, )
         outputs = [Variable(as_array(y)) for y in ys ]
 
-        
+        # '연결' 생성
         if Config.enable_backprop:
             self.generation = max([x.generation for x in inputs])   
 
