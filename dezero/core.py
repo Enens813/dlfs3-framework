@@ -9,6 +9,7 @@ import heapq
 import itertools
 import weakref
 import contextlib
+import dezero
 
 ## 설정 관련
 class Config:
@@ -122,7 +123,22 @@ class Variable:
             return 'variable(None)'
         p = str(self.data).replace('\n', '\n'+ ' '*9)
         return f'variable({p})'
+    
+    # x.reshape(2,3), x.reshape([2,3]), x.reshape((2,3)) 을 해주기 위한 코드
+    def reshape(self, *shape):
+        # x.reshape((2, 3)) 하면 shape=((2,3),)로 받음. 이걸 꺼내주기 위한 if문
+        if len(shape)==1 and isinstance(shape[0], (tuple, list)):
+            shape = shape[0]
+        return dezero.functions.reshape(self, shape)    # F.reshape로 하지 않는 것은, 순환 import를 피하기 위함
 
+    # x.transpose()
+    def transpose(self):
+        return dezero.functions.transpose(self)
+    
+    # x.T
+    @property
+    def T(self):
+        return dezero.functions.transpose(self)
 
 class Function:
     def __call__(self, *inputs): 

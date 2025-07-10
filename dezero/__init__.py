@@ -10,5 +10,6 @@ else:
     from dezero.core import Variable, Function, using_config, no_grad, as_array, as_variable
     from dezero.core import setup_variable
 
+import dezero.functions
 
 setup_variable()
