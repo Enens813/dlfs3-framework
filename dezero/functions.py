@@ -7,6 +7,7 @@ sys.path.append(base)
 
 import numpy as np
 from dezero.core import Function
+from dezero import utils
 
 class Sin(Function):
     def forward(self, x):
@@ -89,6 +90,64 @@ class Transpose(Function):
 def transpose(x):
     return Transpose()(x)
 
+
+class Sum(Function):
+    def __init__ (self, axis, keepdims):
+        self.axis = axis
+        self.keepdims = keepdims
+
+    def forward(self, x):
+        self.x_shape = x.shape
+        y = x.sum(axis=self.axis, keepdims=self.keepdims)
+        return y
+    
+    def backward(self, gy):
+        gy = utils.reshape_sum_backward(gy, self.x_shape, self.axis, self.keepdims) # numpy 문제로, gy를 조금 바꿔줌. 자세한 설명은 utils에서
+        gx = broadcast_to(gy, self.x_shape)
+        return gx
+    
+def sum(x, axis=None, keepdims=False):
+    return Sum(axis, keepdims)(x)
+
+# x=[1,2,3] -> y=np.broadcast_to(x,(2,3)) 하면 y= [[1,2,3], [1,2,3]] 이 됨. 즉 확장해줌. 대신, gy = [[2,3,4], [2,3,4]]라면 gx = [4,6,8] 이 됨. 역변환은 sum_to로 정의함
+class BroadcastTo(Function):
+    def __init__(self, shape):
+        self.shape = shape
+    
+    def forward(self, x):
+        self.x_shape = x.shape
+        y = np.broadcast_to(x, self.shape)
+        return y
+    
+    def backward(self, gy):
+        gx = sum_to(gy, self.x_shape)   # utils에서 정의
+        return gx
+
+def broadcast_to(x, shape):
+    if x.shape ==shape:
+        return as_variable(x)
+    return BroadcastTo(shape)(x)
+
+
+class SumTo(Function):
+    def __init__(self, shape):
+        self.shape = shape
+
+    def forward(self, x):
+        self.x_shape = x.shape
+        y = utils.sum_to(x, self.shape)
+        return y
+    
+    def backward(self, gy):
+        gx = broadcast_to(gy, self.x_shape)
+        return gx
+
+def sum_to(x, shape):
+    if x.shape ==shape:
+        return as_variable(x)
+    return SumTo(shape)(x)
+
+    
 if __name__ == '__main__':
     from dezero.core import Variable, setup_variable
     
@@ -100,3 +159,12 @@ if __name__ == '__main__':
     print(x)
     print(y)
     print(z)
+    print()
+
+    ## broadcast 확인
+    x0 = Variable(np.array([1,2,3]))
+    x1 = Variable(np.array([10]))
+    y = x0 + x1
+    print(x0, x1, y)
+    y.backward()
+    print(x1.grad)

@@ -80,6 +80,65 @@ def plot_dot_graph(output, verbose=True, to_file='graph.png'):
         pass
 
 
+
+# =============================================================================
+# dezero.functions를 도와주는 함수
+# =============================================================================
+
+def sum_to(x, shape):
+    """Sum elements along axes to output an array of a given shape.
+
+    Args:
+        x (ndarray): Input array.
+        shape:
+
+    Returns:
+        ndarray: Output array of the shape.
+    """
+    ndim = len(shape)
+    lead = x.ndim - ndim            # lead만큼 dimension을 줄여야 함
+    lead_axis = tuple(range(lead))  # sum 해야 하는 axis들
+
+    axis = tuple([i + lead for i, sx in enumerate(shape) if sx == 1])   # shape에서 1인 축은 broadcasting되었을 축 → sum으로 되돌려야 함
+    y = x.sum(lead_axis + axis, keepdims=True)                          # sum 수행
+    if lead > 0:
+        y = y.squeeze(lead_axis)                                        # 앞쪽 여분 차원을 제거 (squeeze)
+    return y
+
+def reshape_sum_backward(gy, x_shape, axis, keepdims):
+    """Reshape gradient appropriately for dezero.functions.sum's backward.
+
+    Args:
+        gy (dezero.Variable): Gradient variable from the output by backprop.
+        x_shape (tuple): Shape used at sum function's forward.
+        axis (None or int or tuple of ints): Axis used at sum function's
+            forward.
+        keepdims (bool): Keepdims used at sum function's forward.
+
+    Returns:
+        dezero.Variable: Gradient variable which is reshaped appropriately
+    """
+    ndim = len(x_shape)
+
+    # axis를 tuple로 통일
+    tupled_axis = axis
+    if axis is None:
+        tupled_axis = None
+    elif not isinstance(axis, tuple):
+        tupled_axis = (axis,)
+
+    if not (ndim == 0 or tupled_axis is None or keepdims):  # sum() 결과가 차원을 없앤 경우
+        actual_axis = [a if a >= 0 else a + ndim for a in tupled_axis]
+        shape = list(gy.shape)
+        for a in sorted(actual_axis):
+            shape.insert(a, 1)                              # shape 추가
+    else:
+        shape = gy.shape
+
+    gy = gy.reshape(shape)  # reshape
+    return gy
+
+
 if __name__ == '__main__':
     from core_simple import *
     

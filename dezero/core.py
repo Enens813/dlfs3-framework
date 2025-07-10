@@ -174,11 +174,16 @@ class Function:
 # Add는 안바뀜
 class Add(Function):
     def forward(self, x0, x1):
+        self.x0_shape, self.x1_shape = x0.shape, x1.shape   # broadcast는 numpy에 의해 되는데, 역전파는 따로 구현해줘야 함. 그 때 필요
         y = x0 + x1
         return y
     
     def backward(self, gy):
-        return (gy, gy)
+        gx0, gx1 = gy, gy
+        if self.x0_shape != self.x1_shape:  # forward 시 broadcast가 적용되었다면
+            gx0 = dezero.functions.sum_to(gx0, self.x0_shape)   # gx0는 원래 x0_shape으로 sumto 해줌. 아래 gx1도 마찬가지
+            gx1 = dezero.functions.sum_to(gx1, self.x1_shape)
+        return (gx0, gx1)
     
 # Mul은 backward 시, data로 받는게 아니라 variable 그 자체로 받도록 수정
 class Mul(Function):
