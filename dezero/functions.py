@@ -162,7 +162,48 @@ class MatMul(Function):
 def matmul(x,W):
     return MatMul()(x, W)
 
+class Linear(Function):
+    def forward(self, x, W, b=None):
+        y = x.dot(W)
+        if b is not None:
+            y += b
+        return y
+    
+    def backward(self, gy):
+        x, W, b = self.inputs
+        gx = matmul(gy, W.T)
+        gW = matmul(x.T, gy)
+        gb = sum_to(gy, b.shape) if b is not None else None
+        return gx, gW, gb
+    
+def linear(x, W, b=None):
+    return Linear()(x, W, b)
 
+def linear_simple(x, W, b=None):
+    t = matmul(x, W)
+    if b is None:
+        return t
+    y  = t + b
+    t.data = None  # t 메모리 해제(backward에서 t는 필요가 없음)
+    return y
+
+class Sigmoid(Function):
+    def forward(self, x):
+        #y = 1 / (1 + np.exp(-x))
+        y = 0.5 * (np.tanh(x * 0.5) + 1)  # 1/np.exp(-x) 와 동일한 함수이지만, 훨씬 수치적으로 안정적이고 빠름 (tanh는 테이블화되어있는 경우 많고, GPU SIMD등에도 있으나, exp+div 조합은 두개의 파이프라인 필요)
+        return y
+    def backward(self, gy):
+        y = self.outputs[0]()
+        gx = gy * (1 - y) * y
+        return gx
+
+def sigmoid(x):
+    return Sigmoid()(x)
+
+def simple_sigmoid(x):
+    x = as_variable(x)
+    y = 1 / (1 + np.exp(-x))
+    return y
 # framework 밖에서 구현해도 되지만 메모리를 덜 씀
 class MeanSquaredError(Function):
     def forward(self, x0, x1):
